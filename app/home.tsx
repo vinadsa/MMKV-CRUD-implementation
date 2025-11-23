@@ -1,158 +1,218 @@
-import { addMahasiswa, getAllMahasiswa } from '@/src/services/firebaseService';
+import {
+    getUserProfileById,
+    startDirectThreadByEmail,
+    subscribeToThreads,
+    ThreadDoc,
+    UserProfile,
+} from '@/src/services/firebaseService';
 import { AuthContext } from '@/src/storage/AuthContext';
 import { useRouter } from 'expo-router';
-import React, { useContext, useEffect, useState } from 'react';
+import { Timestamp } from 'firebase/firestore';
+import React, { useContext, useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
     FlatList,
-    RefreshControl,
+    KeyboardAvoidingView,
+    Platform,
     StyleSheet,
     Text,
+    TextInput,
     TouchableOpacity,
     View,
 } from 'react-native';
 
+type ThreadListItem = ThreadDoc & { otherUser?: UserProfile | null };
+
+const formatTimestamp = (value?: Timestamp | null) => {
+  if (!value) return '';
+  return value.toDate().toLocaleTimeString();
+};
+
 export default function HomeScreen() {
   const router = useRouter();
   const { user, logout } = useContext(AuthContext);
-  const [mahasiswaList, setMahasiswaList] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const [threads, setThreads] = useState<ThreadListItem[]>([]);
+  const [loadingThreads, setLoadingThreads] = useState(true);
+  const [newChatEmail, setNewChatEmail] = useState('');
+  const [startingChat, setStartingChat] = useState(false);
+  const profileCache = useRef<Record<string, UserProfile>>({});
 
   useEffect(() => {
-    // Fetch data mahasiswa
-    fetchMahasiswa();
-  }, []);
+    if (!user) {
+      setThreads([]);
+      return;
+    }
 
-  const fetchMahasiswa = async () => {
-    setLoading(true);
-    const result = await getAllMahasiswa();
-    setLoading(false);
+    profileCache.current = {};
+    let isMounted = true;
+    setLoadingThreads(true);
 
-    if (result.success) {
-      setMahasiswaList(result.data || []);
-    } else {
-      Alert.alert('Error', result.error);
+    const fetchProfile = async (uid: string) => {
+      if (profileCache.current[uid]) return profileCache.current[uid];
+      const profile = await getUserProfileById(uid);
+      if (profile) {
+        profileCache.current[uid] = profile;
+      }
+      return profile;
+    };
+
+    const hydrateThreads = async (docs: ThreadDoc[]) => {
+      const enriched: ThreadListItem[] = [];
+      for (const thread of docs) {
+        const otherId = thread.participants.find((id) => id !== user.uid) || user.uid;
+        let otherProfile: UserProfile | null = null;
+        if (otherId === user.uid) {
+          otherProfile = {
+            uid: user.uid,
+            email: user.email,
+            emailLower: user.email ? user.email.toLowerCase() : null,
+            displayName: user.displayName,
+          } as UserProfile;
+        } else {
+          otherProfile = await fetchProfile(otherId);
+        }
+        enriched.push({ ...thread, otherUser: otherProfile });
+      }
+      if (isMounted) {
+        setThreads(enriched);
+        setLoadingThreads(false);
+      }
+    };
+
+    const unsubscribe = subscribeToThreads(user.uid, (docs) => {
+      hydrateThreads(docs).catch((err) => console.error('Gagal memuat thread', err));
+    });
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, [user]);
+
+  const handleLogout = async () => {
+    Alert.alert('Logout', 'Apakah Anda yakin ingin keluar?', [
+      { text: 'Batal', style: 'cancel' },
+      {
+        text: 'Logout',
+        style: 'destructive',
+        onPress: async () => {
+          await logout();
+          router.replace('login' as any);
+        },
+      },
+    ]);
+  };
+
+  const handleStartChat = async () => {
+    if (!user) {
+      Alert.alert('Error', 'Silakan login terlebih dahulu');
+      return;
+    }
+    if (!newChatEmail.trim()) {
+      Alert.alert('Error', 'Email lawan bicara wajib diisi');
+      return;
+    }
+    setStartingChat(true);
+    try {
+      const { thread } = await startDirectThreadByEmail(user, newChatEmail);
+      setNewChatEmail('');
+      router.push({ pathname: 'chat/[threadId]', params: { threadId: thread.id } });
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Gagal memulai chat');
+    } finally {
+      setStartingChat(false);
     }
   };
 
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await fetchMahasiswa();
-    setRefreshing(false);
-  };
+  const renderThread = ({ item }: { item: ThreadListItem }) => {
+    const otherName = item.otherUser?.displayName || 'Teman';
+    const lastMessage = item.lastMessage || 'Belum ada pesan';
+    const updatedAt = item.updatedAt instanceof Timestamp ? formatTimestamp(item.updatedAt) : '';
 
-  const handleLogout = async () => {
-    Alert.alert(
-      'Logout',
-      'Apakah Anda yakin ingin keluar?',
-      [
-        { text: 'Batal', style: 'cancel' },
-        {
-          text: 'Logout',
-          style: 'destructive',
-          onPress: async () => {
-            await logout();
-            router.replace('login' as any);
-          },
-        },
-      ]
+    return (
+      <TouchableOpacity
+        style={styles.threadCard}
+        onPress={() => router.push({ pathname: 'chat/[threadId]', params: { threadId: item.id } })}
+      >
+        <View style={styles.threadHeader}>
+          <Text style={styles.threadName}>{otherName}</Text>
+          {updatedAt ? <Text style={styles.threadTime}>{updatedAt}</Text> : null}
+        </View>
+        <Text style={styles.threadLastMessage} numberOfLines={1}>
+          {lastMessage}
+        </Text>
+      </TouchableOpacity>
     );
   };
 
-  const handleAddSampleData = async () => {
-    const sampleData = {
-      nim: '24060122' + Math.floor(Math.random() * 10000),
-      nama: 'Mahasiswa ' + Math.floor(Math.random() * 100),
-      jurusan: 'Informatika',
-      angkatan: 2022,
-      email: 'mhs' + Math.floor(Math.random() * 1000) + '@students.undip.ac.id',
-    };
-
-    const result = await addMahasiswa(sampleData);
-    if (result.success) {
-      Alert.alert('Sukses', 'Data mahasiswa berhasil ditambahkan!');
-      fetchMahasiswa();
-    } else {
-      Alert.alert('Error', result.error);
-    }
-  };
-
-  const renderMahasiswa = ({ item }: any) => (
-    <View style={styles.card}>
-      <View style={styles.cardHeader}>
-        <Text style={styles.nama}>{item.nama}</Text>
-        <Text style={styles.nim}>{item.nim}</Text>
-      </View>
-      <View style={styles.cardBody}>
-        <Text style={styles.info}>📚 {item.jurusan}</Text>
-        <Text style={styles.info}>🎓 Angkatan {item.angkatan}</Text>
-        <Text style={styles.info}>✉️ {item.email}</Text>
-      </View>
-    </View>
-  );
-
-  if (loading) {
+  if (!user) {
     return (
       <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color="#007AFF" />
-        <Text style={styles.loadingText}>Memuat data...</Text>
+        <Text style={styles.emptyText}>Silakan login untuk mulai chat.</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      style={styles.container}
+    >
       <View style={styles.header}>
         <View>
-          <Text style={styles.headerTitle}>Data Mahasiswa</Text>
-          <Text style={styles.headerSubtitle}>
-            {user?.email || 'User'}
-          </Text>
+          <Text style={styles.headerTitle}>Percakapan</Text>
+          <Text style={styles.headerSubtitle}>{user.displayName}</Text>
+          <Text style={styles.headerSubtitleSmall}>{user.email || '-'}</Text>
         </View>
         <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
           <Text style={styles.logoutText}>Logout</Text>
         </TouchableOpacity>
       </View>
 
-      <View style={styles.statsContainer}>
-        <View style={styles.statCard}>
-          <Text style={styles.statNumber}>{mahasiswaList.length}</Text>
-          <Text style={styles.statLabel}>Total Mahasiswa</Text>
+      <View style={styles.newChatContainer}>
+        <Text style={styles.sectionTitle}>Mulai chat baru</Text>
+        <View style={styles.newChatRow}>
+          <TextInput
+            style={styles.input}
+            placeholder="Email lawan bicara"
+            placeholderTextColor="#999"
+            value={newChatEmail}
+            onChangeText={setNewChatEmail}
+            keyboardType="email-address"
+            autoCapitalize="none"
+          />
+          <TouchableOpacity
+            style={[styles.startChatButton, startingChat && styles.buttonDisabled]}
+            onPress={handleStartChat}
+            disabled={startingChat}
+          >
+            {startingChat ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.startChatText}>Mulai</Text>
+            )}
+          </TouchableOpacity>
         </View>
       </View>
 
-      <FlatList
-        data={mahasiswaList}
-        renderItem={renderMahasiswa}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.listContainer}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>📝 Belum ada data mahasiswa</Text>
-            <TouchableOpacity
-              style={styles.addButton}
-              onPress={handleAddSampleData}
-            >
-              <Text style={styles.addButtonText}>+ Tambah Data Sample</Text>
-            </TouchableOpacity>
-          </View>
-        }
-      />
-
-      {mahasiswaList.length > 0 && (
-        <TouchableOpacity
-          style={styles.floatingButton}
-          onPress={handleAddSampleData}
-        >
-          <Text style={styles.floatingButtonText}>+</Text>
-        </TouchableOpacity>
+      {loadingThreads ? (
+        <View style={styles.centerContainer}>
+          <ActivityIndicator size="large" color="#007AFF" />
+          <Text style={styles.loadingText}>Memuat percakapan...</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={threads}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={threads.length ? styles.listContainer : styles.emptyContainer}
+          renderItem={renderThread}
+          ListEmptyComponent={
+            <Text style={styles.emptyText}>Belum ada percakapan. Mulai chat baru di atas.</Text>
+          }
+        />
       )}
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -160,17 +220,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
-  },
-  centerContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f5f5f5',
-  },
-  loadingText: {
-    marginTop: 12,
-    color: '#666',
-    fontSize: 16,
   },
   header: {
     flexDirection: 'row',
@@ -186,10 +235,13 @@ const styles = StyleSheet.create({
     color: '#fff',
   },
   headerSubtitle: {
-    fontSize: 14,
+    fontSize: 16,
     color: '#fff',
-    opacity: 0.8,
     marginTop: 4,
+  },
+  headerSubtitleSmall: {
+    fontSize: 12,
+    color: '#f0f0f0',
   },
   logoutButton: {
     backgroundColor: 'rgba(255,255,255,0.2)',
@@ -201,108 +253,98 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '600',
   },
-  statsContainer: {
+  newChatContainer: {
     padding: 20,
-  },
-  statCard: {
     backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 20,
+    borderBottomWidth: 1,
+    borderColor: '#eee',
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 12,
+    color: '#333',
+  },
+  newChatRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  input: {
+    flex: 1,
+    backgroundColor: '#f7f7f7',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 14,
+    fontSize: 16,
+    borderWidth: 1,
+    borderColor: '#eee',
+    color: '#333',
+  },
+  startChatButton: {
+    backgroundColor: '#007AFF',
+    borderRadius: 8,
+    paddingHorizontal: 18,
+    justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
   },
-  statNumber: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#007AFF',
+  startChatText: {
+    color: '#fff',
+    fontWeight: '600',
   },
-  statLabel: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 4,
+  buttonDisabled: {
+    opacity: 0.6,
   },
   listContainer: {
     padding: 20,
-    paddingTop: 0,
   },
-  card: {
+  threadCard: {
     backgroundColor: '#fff',
     borderRadius: 12,
     padding: 16,
     marginBottom: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.08,
     shadowRadius: 4,
-    elevation: 3,
+    elevation: 2,
   },
-  cardHeader: {
+  threadHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 6,
   },
-  nama: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
+  threadName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111',
     flex: 1,
   },
-  nim: {
-    fontSize: 14,
-    color: '#007AFF',
-    fontWeight: '600',
+  threadTime: {
+    fontSize: 12,
+    color: '#888',
+    marginLeft: 8,
   },
-  cardBody: {
-    gap: 6,
+  threadLastMessage: {
+    color: '#555',
   },
-  info: {
-    fontSize: 14,
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  loadingText: {
+    marginTop: 12,
     color: '#666',
   },
   emptyContainer: {
-    alignItems: 'center',
-    paddingVertical: 60,
-  },
-  emptyText: {
-    fontSize: 16,
-    color: '#999',
-    marginBottom: 20,
-  },
-  addButton: {
-    backgroundColor: '#007AFF',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
-  addButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  floatingButton: {
-    position: 'absolute',
-    bottom: 30,
-    right: 30,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: '#007AFF',
+    flexGrow: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 8,
+    padding: 40,
   },
-  floatingButtonText: {
-    color: '#fff',
-    fontSize: 32,
-    fontWeight: '300',
+  emptyText: {
+    color: '#666',
+    textAlign: 'center',
   },
 });

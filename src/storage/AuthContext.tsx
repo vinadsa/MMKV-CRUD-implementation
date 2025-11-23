@@ -1,23 +1,12 @@
 // src/context/AuthContext.tsx
 import React, { createContext, useEffect, useState } from "react";
 import {
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  signOut,
-  User as FirebaseUser,
-} from "firebase/auth";
-import { auth } from "../firebaseConfig";
-import {
-  saveUser,
-  getStoredUser,
-  clearUser,
-  StoredUser,
-} from "../storage/mmkvUser";
-import {
-  saveCredentials,
-  getStoredCredentials,
-  clearCredentials,
-} from "../storage/mmkvCredentials";
+  loginUser as loginUserService,
+  logoutUser as logoutUserService,
+  registerUser as registerUserService,
+} from "../services/firebaseService";
+import { clearCredentials, getStoredCredentials } from "../storage/mmkvCredentials";
+import { clearUser, getStoredUser, StoredUser } from "../storage/mmkvUser";
 
 type AuthContextType = {
   user: StoredUser | null;
@@ -46,18 +35,14 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
         // 2. coba auto-login kalau ada email+password yang tersimpan
         const creds = getStoredCredentials();
         if (creds) {
-          const cred = await signInWithEmailAndPassword(
-            auth,
-            creds.email,
-            creds.password
-          );
-          const firebaseUser = cred.user;
-          const data: StoredUser = {
-            uid: firebaseUser.uid,
-            email: firebaseUser.email,
-          };
-          setUser(data);
-          saveUser(data); // refresh data user di MMKV
+          const result = await loginUserService(creds.email, creds.password);
+          if (result.success && result.user) {
+            setUser(result.user);
+          } else {
+            clearCredentials();
+            clearUser();
+            setUser(null);
+          }
         }
       } catch (e) {
         console.warn("Auto login gagal, hapus kredensial", e);
@@ -73,35 +58,23 @@ export const AuthProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
   }, []);
 
   const login = async (email: string, password: string) => {
-    const cred = await signInWithEmailAndPassword(auth, email, password);
-    const firebaseUser: FirebaseUser = cred.user;
-
-    const data: StoredUser = {
-      uid: firebaseUser.uid,
-      email: firebaseUser.email,
-    };
-
-    setUser(data);
-    saveUser(data); // simpan info user di MMKV
-    saveCredentials({ email, password }); // simpan kredensial di MMKV
+    const result = await loginUserService(email, password);
+    if (!result.success || !result.user) {
+      throw new Error(result.error || "Login gagal");
+    }
+    setUser(result.user);
   };
 
   const register = async (email: string, password: string) => {
-    const cred = await createUserWithEmailAndPassword(auth, email, password);
-    const firebaseUser: FirebaseUser = cred.user;
-
-    const data: StoredUser = {
-      uid: firebaseUser.uid,
-      email: firebaseUser.email,
-    };
-
-    setUser(data);
-    saveUser(data);
-    saveCredentials({ email, password });
+    const result = await registerUserService(email, password);
+    if (!result.success || !result.user) {
+      throw new Error(result.error || "Registrasi gagal");
+    }
+    setUser(result.user);
   };
 
   const logout = async () => {
-    await signOut(auth);
+    await logoutUserService();
     setUser(null);
     clearUser();
     clearCredentials();
