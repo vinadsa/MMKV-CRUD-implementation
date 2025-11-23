@@ -194,21 +194,20 @@ const buildThreadId = (a: string, b: string) => [a, b].sort().join('_');
 export const ensureDirectThread = async (userAId: string, userBId: string) => {
   const threadId = buildThreadId(userAId, userBId);
   const threadRef = doc(db, THREADS_COLLECTION, threadId);
-  const snapshot = await getDoc(threadRef);
-
-  if (snapshot.exists()) {
-    return { id: threadId, ...(snapshot.data() as Omit<ThreadDoc, 'id'>) } as ThreadDoc;
-  }
-
   const now = serverTimestamp();
-  const payload = {
-    participants: [userAId, userBId],
-    createdAt: now,
-    updatedAt: now,
-  };
 
-  await setDoc(threadRef, payload);
-  return { id: threadId, ...payload } as ThreadDoc;
+  await setDoc(
+    threadRef,
+    {
+      participants: [userAId, userBId],
+      createdAt: now,
+      updatedAt: now,
+    },
+    { merge: true } // creates if missing, keeps data if exists
+  );
+
+  const snapshot = await getDoc(threadRef); // now succeeds because user is in participants
+  return { id: snapshot.id, ...(snapshot.data() as Omit<ThreadDoc, 'id'>) } as ThreadDoc;
 };
 
 export const getThreadById = async (threadId: string) => {

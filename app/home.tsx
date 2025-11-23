@@ -161,7 +161,7 @@ export default function HomeScreen() {
     >
       <View style={styles.header}>
         <View>
-          <Text style={styles.headerTitle}>Percakapan</Text>
+          <Text style={styles.headerTitle}>MeChat</Text>
           <Text style={styles.headerSubtitle}>{user.displayName}</Text>
           <Text style={styles.headerSubtitleSmall}>{user.email || '-'}</Text>
         </View>
@@ -175,7 +175,7 @@ export default function HomeScreen() {
         <View style={styles.newChatRow}>
           <TextInput
             style={styles.input}
-            placeholder="Email lawan bicara"
+            placeholder="Masukkan email orang lain"
             placeholderTextColor="#999"
             value={newChatEmail}
             onChangeText={setNewChatEmail}
@@ -199,7 +199,7 @@ export default function HomeScreen() {
       {loadingThreads ? (
         <View style={styles.centerContainer}>
           <ActivityIndicator size="large" color="#007AFF" />
-          <Text style={styles.loadingText}>Memuat percakapan...</Text>
+          <Text style={styles.loadingText}>Memuat chat...</Text>
         </View>
       ) : (
         <FlatList
@@ -208,7 +208,7 @@ export default function HomeScreen() {
           contentContainerStyle={threads.length ? styles.listContainer : styles.emptyContainer}
           renderItem={renderThread}
           ListEmptyComponent={
-            <Text style={styles.emptyText}>Belum ada percakapan. Mulai chat baru di atas.</Text>
+            <Text style={styles.emptyText}>Belum ada chat. Mulai chat baru di atas.</Text>
           }
         />
       )}
@@ -227,7 +227,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 20,
     paddingTop: 60,
-    backgroundColor: '#007AFF',
+    backgroundColor: '#145E29D3',
   },
   headerTitle: {
     fontSize: 24,
@@ -281,7 +281,7 @@ const styles = StyleSheet.create({
     color: '#333',
   },
   startChatButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: '#0CAC39DF',
     borderRadius: 8,
     paddingHorizontal: 18,
     justifyContent: 'center',

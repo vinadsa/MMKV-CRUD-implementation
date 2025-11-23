@@ -22,6 +22,7 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 type Params = {
   threadId?: string;
@@ -128,11 +129,7 @@ export default function ChatRoomScreen() {
   }
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={80}
-    >
+    <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Text style={styles.backText}>‹</Text>
@@ -143,54 +140,63 @@ export default function ChatRoomScreen() {
         </View>
       </View>
 
-      {loading ? (
-        <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color="#007AFF" />
-        </View>
-      ) : (
-        <FlatList
-          ref={listRef}
-          data={messages}
-          keyExtractor={(item) => item.id}
-          renderItem={renderMessage}
-          contentContainerStyle={styles.messageList}
-          keyboardShouldPersistTaps="handled"
-        />
-      )}
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      >
+        {loading ? (
+          <View style={styles.centerContainer}>
+            <ActivityIndicator size="large" color="#007AFF" />
+          </View>
+        ) : (
+          <FlatList
+            ref={listRef}
+            data={messages}
+            keyExtractor={(item) => item.id}
+            renderItem={renderMessage}
+            contentContainerStyle={styles.messageList}
+            keyboardShouldPersistTaps="handled"
+          />
+        )}
 
-      <View style={styles.inputContainer}>
-        <TextInput
-          style={styles.messageInput}
-          placeholder="Tulis pesan..."
-          placeholderTextColor="#999"
-          value={inputValue}
-          onChangeText={setInputValue}
-          multiline
-        />
-        <TouchableOpacity
-          style={[styles.sendButton, (!inputValue.trim() || sending) && styles.sendButtonDisabled]}
-          onPress={handleSend}
-          disabled={!inputValue.trim() || sending}
-        >
-          {sending ? <ActivityIndicator color="#fff" /> : <Text style={styles.sendButtonText}>Kirim</Text>}
-        </TouchableOpacity>
-      </View>
-    </KeyboardAvoidingView>
+        <View style={styles.inputContainer}>
+          <TextInput
+            style={styles.messageInput}
+            placeholder="Tulis pesan..."
+            placeholderTextColor="#999"
+            value={inputValue}
+            onChangeText={setInputValue}
+            multiline
+          />
+          <TouchableOpacity
+            style={[styles.sendButton, (!inputValue.trim() || sending) && styles.sendButtonDisabled]}
+            onPress={handleSend}
+            disabled={!inputValue.trim() || sending}
+          >
+            {sending ? <ActivityIndicator color="#fff" /> : <Text style={styles.sendButtonText}>Kirim</Text>}
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
     backgroundColor: '#f5f5f5',
+  },
+  flex: {
+    flex: 1,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: 60,
+    paddingTop: 15,
     paddingHorizontal: 16,
-    paddingBottom: 12,
-    backgroundColor: '#007AFF',
+    paddingBottom: 15,
+    backgroundColor: '#145E29D3',
   },
   backButton: {
     marginRight: 12,
@@ -235,7 +241,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
   },
   myBubble: {
-    backgroundColor: '#007AFF',
+    backgroundColor: '#0CAC39DF',
     borderBottomRightRadius: 4,
   },
   theirBubble: {
